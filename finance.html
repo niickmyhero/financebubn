@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Finance Dashboard</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #f4f7f9; margin: 0; padding: 0; }
+  header { background: #34495e; color: white; padding: 1rem; text-align: center; }
+  main { max-width: 1000px; margin: 2rem auto; background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 0 15px rgba(0,0,0,0.1); }
+  h2 { color: #333; }
+  form { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  input, select, button { padding: 0.5rem; font-size: 1rem; flex: 1 1 150px; }
+  button { background: #27ae60; color: white; border: none; cursor: pointer; }
+  button:hover { background: #2ecc71; }
+  .summary { display: flex; justify-content: space-around; margin-top: 2rem; }
+  .summary div { background: #ecf0f1; padding: 1rem; border-radius: 5px; text-align: center; flex: 1; margin: 0 0.5rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 2rem; }
+  th, td { padding: 0.5rem; border-bottom: 1px solid #ccc; text-align: center; }
+  .receita { color: #27ae60; }
+  .despesa { color: #c0392b; }
+  .actions button { margin: 0 0.2rem; padding: 0.2rem 0.5rem; }
+  canvas { margin-top: 2rem; }
+  .filters { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Finance Dashboard</h1>
+</header>
+<main>
+  <h2>Adicionar Transação</h2>
+  <form id="financeForm">
+    <input type="text" id="descricao" placeholder="Descrição" required>
+    <input type="number" id="valor" placeholder="Valor" step="0.01" required>
+    <select id="tipo">
+      <option value="receita">Receita</option>
+      <option value="despesa">Despesa</option>
+    </select>
+    <select id="categoria">
+      <option value="Salário">Salário</option>
+      <option value="Alimentação">Alimentação</option>
+      <option value="Transporte">Transporte</option>
+      <option value="Lazer">Lazer</option>
+      <option value="Outros">Outros</option>
+    </select>
+    <input type="month" id="mes" required>
+    <button type="submit">Adicionar</button>
+  </form>
+
+  <div class="filters">
+    <select id="filterTipo">
+      <option value="todos">Todos</option>
+      <option value="receita">Receitas</option>
+      <option value="despesa">Despesas</option>
+    </select>
+    <select id="filterCategoria">
+      <option value="todos">Todas Categorias</option>
+      <option value="Salário">Salário</option>
+      <option value="Alimentação">Alimentação</option>
+      <option value="Transporte">Transporte</option>
+      <option value="Lazer">Lazer</option>
+      <option value="Outros">Outros</option>
+    </select>
+    <input type="month" id="filterMes">
+    <button onclick="filtrar()">Filtrar</button>
+    <button onclick="exportCSV()">Exportar CSV</button>
+  </div>
+
+  <div class="summary">
+    <div>Receitas: R$ <span id="totalReceitas">0.00</span></div>
+    <div>Despesas: R$ <span id="totalDespesas">0.00</span></div>
+    <div>Saldo: R$ <span id="saldo">0.00</span></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Descrição</th>
+        <th>Categoria</th>
+        <th>Tipo</th>
+        <th>Valor</th>
+        <th>Mês</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody id="lista"></tbody>
+  </table>
+
+  <canvas id="graficoPizza" width="400" height="200"></canvas>
+  <canvas id="graficoLinha" width="400" height="200"></canvas>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  let transacoes = [];
+  const lista = document.getElementById('lista');
+  const totalReceitasEl = document.getElementById('totalReceitas');
+  const totalDespesasEl = document.getElementById('totalDespesas');
+  const saldoEl = document.getElementById('saldo');
+
+  const ctxPizza = document.getElementById('graficoPizza').getContext('2d');
+  const ctxLinha = document.getElementById('graficoLinha').getContext('2d');
+
+  let chartPizza = new Chart(ctxPizza, { type: 'doughnut', data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] } });
+  let chartLinha = new Chart(ctxLinha, { type: 'line', data: { labels: [], datasets: [{ label: 'Saldo', data: [], borderColor: '#2980b9', tension: 0.3 }] } });
+
+  function atualizarResumo() {
+    let receitas = transacoes.filter(t => t.tipo === 'receita').reduce((a,b) => a + b.valor,0);
+    let despesas = transacoes.filter(t => t.tipo === 'despesa').reduce((a,b) => a + b.valor,0);
+    totalReceitasEl.textContent = receitas.toFixed(2);
+    totalDespesasEl.textContent = despesas.toFixed(2);
+    saldoEl.textContent = (receitas - despesas).toFixed(2);
+  }
+
+  function atualizarTabela(listaFiltrada=transacoes) {
+    lista.innerHTML = '';
+    listaFiltrada.forEach((t,index)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${t.descricao}</td>
+        <td>${t.categoria}</td>
+        <td class="${t.tipo}">${t.tipo}</td>
+        <td>${t.valor.toFixed(2)}</td>
+        <td>${t.mes}</td>
+        <td class="actions">
+          <button onclick="editar(${index})">✏️</button>
+          <button onclick="deletar(${index})">🗑️</button>
+        </td>`;
+      lista.appendChild(tr);
+    });
+  }
+
+  function atualizarGraficos() {
+    // Pizza por categoria
+    let categorias = {};
+    transacoes.forEach(t=>{
+      let key = t.tipo==='receita' ? 'Receita' : t.categoria;
+      categorias[key] = (categorias[key]||0) + t.valor;
+    });
+    chartPizza.data.labels = Object.keys(categorias);
+    chartPizza.data.datasets[0].data = Object.values(categorias);
+    chartPizza.data.datasets[0].backgroundColor = Object.keys(categorias).map(k => k==='Receita'?'#27ae60':'#c0392b');
+    chartPizza.update();
+
+    // Linha saldo ao longo do tempo
+    let meses = [...new Set(transacoes.map(t=>t.mes))].sort();
+    let saldoAcumulado = [];
+    let saldo=0;
+    meses.forEach(m=>{
+      transacoes.filter(t=>t.mes===m).forEach(t=>{
+        saldo += t.tipo==='receita'?t.valor:-t.valor;
+      });
+      saldoAcumulado.push(saldo);
+    });
+    chartLinha.data.labels = meses;
+    chartLinha.data.datasets[0].data = saldoAcumulado;
+    chartLinha.update();
+  }
+
+  function adicionarTransacao(descricao, valor, tipo, categoria, mes) {
+    transacoes.push({descricao,valor,tipo,categoria,mes});
+    atualizarResumo();
+    atualizarTabela();
+    atualizarGraficos();
+  }
+
+  document.getElementById('financeForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    const descricao = document.getElementById('descricao').value;
+    const valor = parseFloat(document.getElementById('valor').value);
+    const tipo = document.getElementById('tipo').value;
+    const categoria = document.getElementById('categoria').value;
+    const mes = document.getElementById('mes').value;
+
+    adicionarTransacao(descricao, valor, tipo, categoria, mes);
+    e.target.reset();
+  });
+
+  function deletar(index) {
+    transacoes.splice(index,1);
+    atualizarResumo();
+    atualizarTabela();
+    atualizarGraficos();
+  }
+
+  function editar(index) {
+    const t = transacoes[index];
+    document.getElementById('descricao').value = t.descricao;
+    document.getElementById('valor').value = t.valor;
+    document.getElementById('tipo').value = t.tipo;
+    document.getElementById('categoria').value = t.categoria;
+    document.getElementById('mes').value = t.mes;
+    deletar(index);
+  }
+
+  function filtrar() {
+    const tipo = document.getElementById('filterTipo').value;
+    const categoria = document.getElementById('filterCategoria').value;
+    const mes = document.getElementById('filterMes').value;
+    let filtrado = transacoes;
+    if(tipo!=='todos') filtrado = filtrado.filter(t=>t.tipo===tipo);
+    if(categoria!=='todos') filtrado = filtrado.filter(t=>t.categoria===categoria);
+    if(mes) filtrado = filtrado.filter(t=>t.mes===mes);
+    atualizarTabela(filtrado);
+  }
+
+  function exportCSV() {
+    let csv = 'Descrição,Categoria,Tipo,Valor,Mês\n';
+    transacoes.forEach(t=>{
+      csv += `${t.descricao},${t.categoria},${t.tipo},${t.valor},${t.mes}\n`;
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download','transacoes.csv');
+    link.click();
+  }
+</script>
+</body>
+</html>
